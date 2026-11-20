@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="color-scheme" content="light dark">
+<title>交易機器人狀態</title>
+<style>
+/* 公開狀態頁：唯讀、不含金額。配色與字級沿用 web/style.css（同一套語意色），
+   「暗駕駛艙」原則：一切正常時只有黑白灰，只有異常才有顏色，而且一定搭配文字或符號。 */
+:root {
+  --page: #FFFFFF; --soft: #F5F5F7; --rule: #E3E3E8; --track: #E8E8ED;
+  --ink: #1D1D1F; --muted: #5E5E64;
+  --up: #0A6E3F; --down: #C4001A; --down-bg: #FCEAEC;
+  --warn: #9A4F00; --warn-bg: #FFEFD6; --warn-mark: #FF9F0A;
+  --accent: #0071E3;
+  --font: "Segoe UI", "Microsoft JhengHei UI", "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #18181A; --soft: #232326; --rule: #34343A; --track: #34343A;
+    --ink: #F2F2F5; --muted: #A4A4AB;
+    --up: #4CC38A; --down: #FF6B6B; --down-bg: #3A1D20;
+    --warn: #FFB547; --warn-bg: #3A2C14; --warn-mark: #FF9F0A;
+    --accent: #4C9DFF;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--page); color: var(--ink);
+  font: 15px/1.5 var(--font); font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
+h1, h2, h3 { margin: 0; line-height: 1.35; }
+h1 { font-size: 20px; font-weight: 700; }
+h2 { font-size: 16px; font-weight: 700; }
+h3 { font-size: 14px; font-weight: 700; margin-top: 22px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.up { color: var(--up); }
+.down { color: var(--down); }
+.warn { color: var(--warn); }
+[hidden] { display: none !important; }
+
+/* 頁首 */
+header { border-bottom: 1px solid var(--rule); }
+/* 頁首、提示、頁尾的底色滿版，文字和內容欄（920px）對齊 */
+.head, .notice, footer { padding-left: max(24px, calc(50% - 436px)); padding-right: max(24px, calc(50% - 436px)); }
+.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; padding-top: 18px; padding-bottom: 14px; }
+.tag { font-size: 13px; font-weight: 600; color: var(--warn); border: 1px solid currentColor; border-radius: 4px; padding: 0 6px; }
+.updated { font-size: 13px; color: var(--muted); margin-left: auto; }
+.refresh {
+  font: inherit; font-size: 13px; color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.refresh:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+.refresh:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+/* 過時 / 讀取失敗的提示：整條淡色底 + 符號 + 文字 */
+.notice { display: flex; gap: 10px; align-items: flex-start; padding-top: 10px; padding-bottom: 10px; font-size: 14px; font-weight: 600; }
+.notice.warn { background: var(--warn-bg); color: var(--warn); }
+.notice.bad { background: var(--down-bg); color: var(--down); }
+.notice + .notice { border-top: 1px solid var(--page); }
+
+/* 等級符號：圓 ✓ 正常、三角 ! 注意、方塊 ✕ 要處理（和視窗版相同） */
+.lv { display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 16px; height: 16px; font: 700 11px/1 var(--font); position: relative; top: 2px; }
+.lv.ok { border-radius: 50%; border: 1.5px solid var(--muted); color: var(--muted); }
+.lv.warn { background: var(--warn-mark); color: #1D1D1F; clip-path: polygon(50% 0, 100% 100%, 0 100%); padding-top: 4px; font-size: 10px; }
+.lv.bad { border-radius: 3px; background: var(--down); color: var(--page); }
+
+section { padding: 22px 0 24px; border-bottom: 1px solid var(--rule); }
+section:last-of-type { border-bottom: 0; }
+.sec-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+
+/* 狀態列：這一頁唯一放大的地方 */
+.facts { display: grid; grid-template-columns: repeat(5, auto); margin: 0; }   /* 欄寬照內容分配，「停單：實盤連虧」不折行 */
+.facts > div { padding: 2px 16px 2px 0; }
+.facts > div + div { padding-left: 16px; border-left: 1px solid var(--rule); }
+.facts dt { font-size: 13px; color: var(--muted); }
+.facts dd { margin: 2px 0 0; font-size: 18px; font-weight: 700; line-height: 1.35; display: flex; gap: 6px; white-space: nowrap; }
+.facts dd.sub { font-size: 13px; font-weight: 400; color: var(--muted); line-height: 1.45; white-space: normal; }
+.facts dd.sub.warn { color: var(--warn); font-weight: 600; }
+.stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.stats dd { font-size: 16px; }
+
+.issues { list-style: none; margin: 16px 0 0; padding: 0; }
+.issues li { display: flex; gap: 8px; padding: 6px 0; font-weight: 600; border-top: 1px solid var(--rule); }
+.issues li.bad { color: var(--down); }
+.issues li.warn { color: var(--warn); }
+
+/* 表格 */
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 13px; font-weight: 400; color: var(--muted); padding: 0 12px 6px 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--rule); vertical-align: top; white-space: nowrap; }
+th:last-child, td:last-child { padding-right: 0; }
+th.r, td.r { text-align: right; }
+th.fill { width: 100%; }               /* 最後一欄吃掉多的寬度，其他欄貼著內容 */
+td.sym { font-weight: 600; }
+td .rel { color: var(--muted); font-size: 13px; margin-left: 8px; }
+tr.unprot td { background: var(--down-bg); }
+tr.unprot td:first-child { padding-left: 8px; }
+td.stop-bad { color: var(--down); font-weight: 700; }
+.empty { padding: 10px 0; color: var(--muted); }
+.empty.warn { color: var(--warn); font-weight: 600; }
+
+/* 前向判定 */
+.fwd { list-style: none; margin: 0; padding: 0; }
+.fwd li { padding: 12px 0; border-top: 1px solid var(--rule); }
+.fwd li:first-child { border-top: 0; padding-top: 0; }
+.fwd-top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.fwd-label { font-weight: 600; }
+.fwd-count { white-space: nowrap; }
+.bar { height: 4px; background: var(--track); margin: 6px 0 6px; }
+.bar > i { display: block; height: 100%; background: var(--ink); }
+.fwd-nums { font-size: 14px; }
+.fwd-nums span + span { margin-left: 18px; }
+
+footer { padding-top: 18px; padding-bottom: 32px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--rule); }
+
+@media (max-width: 720px) {
+  .wrap, .head, .notice, footer { padding-left: 16px; padding-right: 16px; }
+  .facts dd { white-space: normal; }
+  .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 14px; }
+  .facts > div, .facts > div + div { padding: 0 12px 0 0; border-left: 0; }
+  .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .updated { margin-left: 0; flex-basis: 100%; order: 3; }
+  td .rel { display: block; margin-left: 0; }
+  th, td { padding-right: 10px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="head">
+    <h1>交易機器人狀態</h1>
+    <span class="tag" id="sampleTag" hidden>範例資料</span>
+    <span class="updated" id="updated">讀取中</span>
+    <button class="refresh" id="refresh" type="button">重新整理</button>
+  </div>
+  <div id="notices" role="status" aria-live="polite"></div>
+</header>
+
+<main class="wrap" id="main" hidden>
+  <section aria-label="機器人現在的狀態">
+    <dl class="facts" id="facts"></dl>
+    <ul class="issues" id="issues"></ul>
+  </section>
+
+  <section aria-labelledby="h-pos">
+    <div class="sec-head"><h2 id="h-pos">持倉</h2><span class="muted small" id="posCount"></span></div>
+    <div id="posBody"></div>
+  </section>
+
+  <section aria-labelledby="h-live">
+    <div class="sec-head"><h2 id="h-live">實盤成績</h2><span class="muted small">只算真實帳戶已平倉的交易</span></div>
+    <dl class="facts stats" id="stats"></dl>
+    <p class="muted small" id="fewNote" hidden>樣本很少，數字不代表未來表現。</p>
+    <h3>最近平倉</h3>
+    <div id="recentBody"></div>
+  </section>
+
+  <section aria-labelledby="h-fwd" id="fwdSec">
+    <div class="sec-head"><h2 id="h-fwd">前向判定進度</h2><span class="muted small">事先定好的規則，筆數到了才判定一次</span></div>
+    <ul class="fwd" id="fwd"></ul>
+  </section>
+</main>
+
+<footer>本頁只顯示機器人狀態，不含金額，不構成投資建議。資料每 5 分鐘更新。</footer>
+
+<script>
+"use strict";
+// 上傳時網址裡的佔位字串會被換成「帳號/儲存庫」。判斷有沒有換過時把字串拆開寫，免得判斷式本身也被換掉。
+var STATUS_URL = "https://api.github.com/repos/k0905378603-byte/trading-status/contents/status.json?ref=status";
+var PLACEHOLDER = "__RE" + "PO__";
+var REFRESH_MS = 5 * 60 * 1000;          // GitHub 未登入每小時 60 次，5 分鐘一次只用 12 次
+var STALE_SEC = 15 * 60;                 // 超過 15 分鐘沒更新就標「資料過時」
+var FEW_TRADES = 30;
+
+var params = new URLSearchParams(location.search);
+var sampleKind = params.get("sample");
+var USE_SAMPLE = sampleKind !== null || STATUS_URL.indexOf(PLACEHOLDER) >= 0;
+
+var state = { data: null, error: null, loading: false, fetchedAt: 0, pending: false };
+
+// ---------- 小工具（資料一律用 textContent 塞進畫面，不當 HTML 解析） ----------
+function $(id) { return document.getElementById(id); }
+function el(tag, cls, text) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined && text !== null) n.textContent = String(text);
+  return n;
+}
+function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
+function isNum(v) { return typeof v === "number" && isFinite(v); }
+function lv(level) {
+  var sym = { ok: "✓", warn: "!", bad: "✕" }[level];
+  if (!sym) return null;
+  var n = el("span", "lv " + level, sym);
+  n.setAttribute("aria-hidden", "true");
+  return n;
+}
+function pad(n) { return (n < 10 ? "0" : "") + n; }
+function fmtTime(ms) {
+  if (!isNum(ms)) return "—";
+  var d = new Date(ms), now = new Date();
+  var s = (d.getMonth() + 1) + "/" + d.getDate() + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  return d.getFullYear() === now.getFullYear() ? s : d.getFullYear() + "/" + s;
+}
+function ago(ms) {
+  if (!isNum(ms)) return "";
+  var sec = Math.round((Date.now() - ms) / 1000);
+  if (sec < 60) return "剛剛";
+  var m = Math.floor(sec / 60);
+  if (m < 60) return m + " 分鐘前";
+  var h = Math.floor(m / 60);
+  if (h < 48) return h + " 小時前";
+  return Math.floor(h / 24) + " 天前";
+}
+function fmtR(r) {
+  if (!isNum(r)) return { text: "—", cls: "muted" };
+  var a = Math.abs(r).toFixed(2);
+  if (a === "0.00") return { text: "0.00R", cls: "" };
+  return r > 0 ? { text: "+" + a + "R", cls: "up" } : { text: "−" + a + "R", cls: "down" };
+}
+function dirCls(d) { return d === "多" ? "up" : d === "空" ? "down" : ""; }
+function exName(n) { return n ? String(n).charAt(0).toUpperCase() + String(n).slice(1) : "交易所"; }
+
+// ---------- 讀資料 ----------
+function load() {
+  if (state.loading) return;
+  state.pending = false;
+  if (USE_SAMPLE) {
+    state.data = makeSample(sampleKind);
+    state.error = null;
+    state.fetchedAt = Date.now();
+    render();
+    return;
+  }
+  state.loading = true;
+  render();
+  var ctrl = typeof AbortController === "function" ? new AbortController() : null;
+  var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 20000) : null;
+  fetch(STATUS_URL, {
+    headers: { Accept: "application/vnd.github.raw+json" },
+    cache: "no-store",
+    signal: ctrl ? ctrl.signal : undefined
+  }).then(function (res) {
+    if (!res.ok) {
+      var why;
+      if (res.status === 403 || res.status === 429) why = "HTTP " + res.status + "：GitHub 限流，幾分鐘後會自動再試";
+      else if (res.status === 404) why = "HTTP 404：找不到狀態資料，機器人可能還沒推送過";
+      else why = "HTTP " + res.status + "，5 分鐘後會自動再試";
+      throw new Error(why);
+    }
+    return res.text().then(function (t) {
+      var d;
+      try { d = JSON.parse(t); } catch (e) { throw new Error("資料格式不對，5 分鐘後會自動再試"); }
+      if (!d || typeof d !== "object" || !isNum(d.generated)) throw new Error("資料缺少更新時間，5 分鐘後會自動再試");
+      return d;
+    });
+  }).then(function (d) {
+    state.data = d;
+    state.error = null;
+    state.fetchedAt = Date.now();
+  }).catch(function (e) {
+    var msg = e && e.message;
+    if (!msg || e.name === "TypeError" || e.name === "AbortError") msg = "連不上 GitHub，5 分鐘後會自動再試";
+    state.error = msg;
+  }).then(function () {
+    if (timer) clearTimeout(timer);
+    state.loading = false;
+    render();
+  });
+}
+
+// ---------- 畫面 ----------
+function render() {
+  var d = state.data;
+  var btn = $("refresh");
+  btn.disabled = state.loading;
+  btn.textContent = state.loading ? "讀取中" : "重新整理";
+  $("sampleTag").hidden = !USE_SAMPLE;
+
+  var staleMin = d ? Math.floor((Date.now() / 1000 - d.generated) / 60) : 0;
+  var stale = !!d && (Date.now() / 1000 - d.generated) > STALE_SEC;
+
+  // 頁首：更新時間與提示
+  if (d) {
+    $("updated").textContent = "資料時間 " + fmtTime(d.generated * 1000) + "（" + ago(d.generated * 1000) + "）";
+  } else {
+    $("updated").textContent = state.loading ? "讀取中" : "還沒有資料";
+  }
+  var notes = $("notices");
+  clear(notes);
+  function notice(level, text) {
+    var n = el("div", "notice " + level);
+    var s = lv(level); if (s) n.appendChild(s);
+    n.appendChild(el("span", null, text));
+    notes.appendChild(n);
+  }
+  if (state.error) {
+    notice("bad", "讀不到最新狀態（" + state.error + "）" +
+      (d ? "。下面是 " + fmtTime(state.fetchedAt) + " 讀到的舊資料。" : "。"));
+  }
+  if (stale) notice("warn", "資料已 " + staleMin + " 分鐘沒更新：機器人可能沒在跑或連不上 GitHub。");
+  if (d && d.version !== 1) notice("warn", "資料格式是第 " + d.version + " 版，本頁只認得第 1 版，部分欄位可能顯示不正確。");
+
+  $("main").hidden = !d;
+  if (!d) return;
+  renderFacts(d, stale, staleMin);
+  renderPositions(d);
+  renderLive(d);
+  renderForward(d);
+}
+
+function fact(parent, label, value, opts) {
+  opts = opts || {};
+  var box = el("div");
+  box.appendChild(el("dt", null, label));
+  var dd = el("dd", opts.cls);
+  var s = lv(opts.level); if (s) dd.appendChild(s);
+  dd.appendChild(el("span", null, value));
+  box.appendChild(dd);
+  if (opts.sub) box.appendChild(el("dd", "sub" + (opts.subCls ? " " + opts.subCls : ""), opts.sub));
+  parent.appendChild(box);
+}
+
+function renderFacts(d, stale, staleMin) {
+  var facts = $("facts"); clear(facts);
+  var bot = d.bot || {};
+  var scan = isNum(bot.last_scan) ? "上次掃描 " + ago(bot.last_scan * 1000) : "沒有掃描紀錄";
+  if (stale) fact(facts, "機器人", "狀態不明", { level: "warn", sub: staleMin + " 分鐘沒有回報", subCls: "warn" });
+  else if (bot.paused) fact(facts, "機器人", "暫停中", { level: "warn", sub: scan });
+  else fact(facts, "機器人", "運行中", { sub: scan });
+
+  var exs = Array.isArray(d.exchanges) ? d.exchanges : [];
+  var multi = exs.length > 1;
+  var limit = d.live && isNum(d.live.streak_limit) ? d.live.streak_limit : 6;
+  exs.forEach(function (x) {
+    var pre = multi ? exName(x.name) + " " : "";
+    var mode, sub;
+    if (x.mode === "live") {
+      mode = "真實帳戶";
+      sub = x.live_armed ? "真實交易授權開著" : "真實交易授權關著，不會下真實訂單";
+    } else if (x.mode === "demo") { mode = exName(x.name) + " 模擬盤"; sub = "不用真錢"; }
+    else if (x.mode === "paper") { mode = "模擬帳本"; sub = "只在本機記帳，不用真錢"; }
+    else { mode = x.mode ? String(x.mode) : "—"; }
+    fact(facts, pre + "帳戶", mode, { sub: sub });
+
+    var level = ["ok", "warn", "bad"].indexOf(x.level) >= 0 ? x.level : null;
+    fact(facts, pre + "下單", x.trading || "—", {
+      level: level === "ok" ? null : level,
+      cls: level === "bad" ? "down" : level === "warn" ? "warn" : ""
+    });
+  });
+  if (!exs.length) fact(facts, "下單", "沒有交易所資料", { level: "warn", cls: "warn" });
+
+  var strats = Array.isArray(d.strategies) ? d.strategies : [];
+  strats.forEach(function (s) {
+    var v = !s.on ? "關" : s.orders ? "開，會下單" : "開，只推播";
+    fact(facts, (s.tf || "") + " 策略", v, { sub: !s.on ? "不產生訊號" : s.orders ? null : "有訊號只通知，不下單" });
+  });
+
+  exs.forEach(function (x) {
+    if (!isNum(x.loss_streak)) return;
+    var n = x.loss_streak;
+    var lvl = n >= limit ? "bad" : n === limit - 1 ? "warn" : null;
+    fact(facts, (multi ? exName(x.name) + " " : "") + "實盤連虧", n + " / " + limit, {
+      level: lvl, cls: lvl === "bad" ? "down" : lvl === "warn" ? "warn" : "",
+      sub: n >= limit ? "已到上限，會自動停單" : "連虧 " + limit + " 筆會自動停單"
+    });
+  });
+
+  // 只在有問題時列出
+  var issues = $("issues"); clear(issues);
+  function issue(level, text) {
+    var li = el("li", level);
+    var s = lv(level); if (s) li.appendChild(s);
+    li.appendChild(el("span", null, text));
+    issues.appendChild(li);
+  }
+  (Array.isArray(d.positions) ? d.positions : []).forEach(function (p) {
+    if (p.protected === false) issue("bad", (p.symbol || "某個") + " " + (p.direction || "") + "單在交易所查不到止損單");
+  });
+}
+
+function table(headers, rows) {
+  var wrap = el("div", "scroll");
+  var t = el("table");
+  var thead = el("thead"), tr = el("tr");
+  headers.forEach(function (h, i) {
+    var cls = (h.r ? "r" : "") + (i === headers.length - 1 ? " fill" : "");
+    var th = el("th", cls.trim() || null, h.t); th.scope = "col"; tr.appendChild(th);
+  });
+  thead.appendChild(tr); t.appendChild(thead);
+  var tb = el("tbody");
+  rows.forEach(function (r) { tb.appendChild(r); });
+  t.appendChild(tb); wrap.appendChild(t);
+  return wrap;
+}
+function timeCell(ms) {
+  var td = el("td");
+  td.appendChild(el("span", null, fmtTime(ms)));
+  if (isNum(ms)) td.appendChild(el("span", "rel", ago(ms)));
+  return td;
+}
+
+function renderPositions(d) {
+  var body = $("posBody"); clear(body);
+  var pos = Array.isArray(d.positions) ? d.positions : [];
+  $("posCount").textContent = pos.length ? pos.length + " 筆，只列機器人自己開的倉" : "只列機器人自己開的倉";
+  if (d.positions_error) body.appendChild(el("p", "empty warn", "查不到持倉，不代表沒有持倉。下次更新會再查一次。"));
+  if (!pos.length) {
+    if (!d.positions_error) body.appendChild(el("p", "empty", "目前沒有持倉。"));
+    return;
+  }
+  var rows = pos.map(function (p) {
+    var tr = el("tr", p.protected === false ? "unprot" : null);
+    tr.appendChild(el("td", "sym", p.symbol || "—"));
+    tr.appendChild(el("td", dirCls(p.direction), p.direction || "—"));
+    tr.appendChild(timeCell(p.opened_at));
+    var r = fmtR(p.r);
+    tr.appendChild(el("td", "r " + r.cls, r.text));
+    if (p.protected === false) tr.appendChild(el("td", "stop-bad", "✕ 查不到"));
+    else tr.appendChild(el("td", null, "有"));
+    return tr;
+  });
+  body.appendChild(table([{ t: "幣種" }, { t: "方向" }, { t: "開倉時間" }, { t: "現在", r: true }, { t: "止損單" }], rows));
+}
+
+function renderLive(d) {
+  var lv_ = d.live || {};
+  var stats = $("stats"); clear(stats);
+  var n = isNum(lv_.trades) ? lv_.trades : 0;
+  fact(stats, "筆數", String(n));
+  fact(stats, "賺 / 賠 / 平", (lv_.wins || 0) + " / " + (lv_.losses || 0) + " / " + (lv_.breakevens || 0));
+  fact(stats, "勝率", isNum(lv_.win_rate) ? Math.round(lv_.win_rate * 100) + "%" : "—",
+    { sub: isNum(lv_.win_rate) ? null : "還沒有交易" });
+  var avg = fmtR(lv_.avg_r);
+  fact(stats, "平均", avg.text, { cls: avg.cls, sub: "每筆賺賠幾 R" });
+  var pfSub = null;
+  if (!isNum(lv_.pf)) pfSub = n > 0 && !lv_.losses ? "還沒有虧損，算不出來" : "樣本不足";
+  fact(stats, "獲利因子 PF", isNum(lv_.pf) ? lv_.pf.toFixed(2) : "—", { sub: pfSub || "總賺 ÷ 總賠" });
+  $("fewNote").hidden = n >= FEW_TRADES;
+
+  var body = $("recentBody"); clear(body);
+  var rec = Array.isArray(d.recent) ? d.recent : [];
+  if (!rec.length) { body.appendChild(el("p", "empty", "還沒有平倉紀錄。")); return; }
+  var RES = { WIN: ["賺", "up"], LOSS: ["賠", "down"], BREAKEVEN: ["平", ""] };
+  var rows = rec.map(function (t) {
+    var tr = el("tr");
+    tr.appendChild(timeCell(t.closed_at));
+    tr.appendChild(el("td", "sym", t.symbol || "—"));
+    tr.appendChild(el("td", dirCls(t.direction), t.direction || "—"));
+    var r = fmtR(t.r);
+    tr.appendChild(el("td", "r " + r.cls, r.text));
+    var res = RES[t.result] || [t.result || "—", ""];
+    tr.appendChild(el("td", res[1], res[0]));
+    return tr;
+  });
+  body.appendChild(table([{ t: "平倉時間" }, { t: "幣種" }, { t: "方向" }, { t: "R", r: true }, { t: "結果" }], rows));
+}
+
+function renderForward(d) {
+  var list = $("fwd"); clear(list);
+  var fw = Array.isArray(d.forward) ? d.forward : [];
+  $("fwdSec").hidden = !fw.length;
+  fw.forEach(function (f) {
+    var li = el("li");
+    var top = el("div", "fwd-top");
+    top.appendChild(el("span", "fwd-label", f.label || f.id || "—"));
+    var n = isNum(f.n) ? f.n : 0, need = isNum(f.need) && f.need > 0 ? f.need : 0;
+    top.appendChild(el("span", "fwd-count", n + " / " + (need || "—") + " 筆"));
+    li.appendChild(top);
+    var bar = el("div", "bar"), fill = el("i");
+    fill.style.width = (need ? Math.min(100, n / need * 100) : 0).toFixed(1) + "%";
+    bar.appendChild(fill);
+    bar.setAttribute("role", "progressbar");
+    bar.setAttribute("aria-valuemin", "0");
+    bar.setAttribute("aria-valuemax", String(need));
+    bar.setAttribute("aria-valuenow", String(n));
+    bar.setAttribute("aria-label", (f.label || "") + " 進度");
+    li.appendChild(bar);
+    var nums = el("div", "fwd-nums");
+    nums.appendChild(el("span", null, "平均 " + fmtR(f.avg_r).text));
+    nums.appendChild(el("span", null, "PF " + (isNum(f.pf) ? f.pf.toFixed(2) : "—")));
+    li.appendChild(nums);
+    if (f.rule) li.appendChild(el("div", "muted small", f.rule));
+    list.appendChild(li);
+  });
+}
+
+// ---------- 範例資料（?sample=1 或佔位字串沒換時使用；?sample=2、3 是異常情境） ----------
+function makeSample(kind) {
+  var now = Date.now(), s = Math.floor(now / 1000), H = 3600 * 1000;
+  var forward = [
+    { id: "fwd-dch4h-resume-2026-10", label: "4h 通道突破 恢復判定（20 幣影子）", n: 32, need: 60, avg_r: 0.21, pf: 1.34,
+      rule: "第 60 筆判定一次：平均 R > 0 且 PF > 1.1" },
+    { id: "fwd-flush-2026-11", label: "清算瀑布反彈（紙上追蹤）", n: 7, need: 60, avg_r: -0.12, pf: 0.81,
+      rule: "第 60 筆判定一次，通過也只代表可考慮小額實盤" },
+    { id: "fwd-squeeze-2026-11", label: "軋空後回落（紙上追蹤）", n: 0, need: 60, avg_r: null, pf: null,
+      rule: "第 60 筆判定一次，通過也只代表可考慮小額實盤" }
+  ];
+  if (kind === "2") {
+    return {
+      version: 1, generated: s - 47 * 60,
+      bot: { paused: false, last_scan: s - 48 * 60 },
+      exchanges: [{ name: "bitget", mode: "live", live_armed: false, trading: "停單：實盤連虧", level: "bad", loss_streak: 6 }],
+      strategies: [{ tf: "4h", on: true, orders: true }],
+      positions: [{ exchange: "bitget", symbol: "DOGEUSDT", direction: "多", opened_at: now - 30 * H, r: null, protected: false }],
+      positions_error: true,
+      live: { trades: 0, wins: 0, losses: 0, breakevens: 0, win_rate: null, avg_r: null, pf: null, streak_limit: 6 },
+      recent: [], forward: forward
+    };
+  }
+  if (kind === "3") {
+    return {
+      version: 1, generated: s - 120,
+      bot: { paused: true, last_scan: s - 100 },
+      exchanges: [{ name: "bitget", mode: "demo", live_armed: false, trading: "暫停中", level: "warn", loss_streak: 5 }],
+      strategies: [{ tf: "4h", on: true, orders: false }],
+      positions: [], positions_error: false,
+      live: { trades: 2, wins: 2, losses: 0, breakevens: 0, win_rate: 1.0, avg_r: 1.6, pf: null, streak_limit: 6 },
+      recent: [
+        { symbol: "BTCUSDT", direction: "多", closed_at: now - 26 * H, r: 2.0, result: "WIN" },
+        { symbol: "LINKUSDT", direction: "空", closed_at: now - 80 * H, r: 1.2, result: "WIN" }
+      ],
+      forward: forward
+    };
+  }
+  return {
+    version: 1, generated: s - 70,
+    bot: { paused: false, last_scan: s - 40 },
+    exchanges: [{ name: "bitget", mode: "live", live_armed: true, trading: "可下單", level: "ok", loss_streak: 1 }],
+    strategies: [{ tf: "4h", on: true, orders: true }],
+    positions: [
+      { exchange: "bitget", symbol: "BTCUSDT", direction: "空", opened_at: now - 7 * H, r: 0.84, protected: true },
+      { exchange: "bitget", symbol: "SOLUSDT", direction: "多", opened_at: now - 26 * H, r: -0.31, protected: true }
+    ],
+    positions_error: false,
+    live: { trades: 5, wins: 4, losses: 1, breakevens: 0, win_rate: 0.8, avg_r: 0.92, pf: 4.7, streak_limit: 6 },
+    recent: [
+      { symbol: "XRPUSDT", direction: "多", closed_at: now - 20 * H, r: -1.04, result: "LOSS" },
+      { symbol: "ETHUSDT", direction: "空", closed_at: now - 52 * H, r: 1.95, result: "WIN" },
+      { symbol: "BNBUSDT", direction: "空", closed_at: now - 4 * 24 * H, r: 0.71, result: "WIN" },
+      { symbol: "ADAUSDT", direction: "多", closed_at: now - 6 * 24 * H, r: 0.98, result: "WIN" },
+      { symbol: "AVAXUSDT", direction: "空", closed_at: now - 9 * 24 * H, r: 2.0, result: "WIN" }
+    ],
+    forward: forward
+  };
+}
+
+// ---------- 啟動與自動更新 ----------
+$("refresh").addEventListener("click", load);
+setInterval(function () {
+  // 分頁在背景時先不抓，切回來再抓，省 GitHub 的次數
+  if (document.hidden) state.pending = true; else load();
+}, REFRESH_MS);
+document.addEventListener("visibilitychange", function () {
+  if (!document.hidden && state.pending) load();
+});
+setInterval(function () { if (state.data) render(); }, 30000);   // 只更新「x 分鐘前」，不重抓
+load();
+</script>
+</body>
+</html>
